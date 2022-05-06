@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "gg18_sm_manager",
+    "gg18_sign_client",
+    "gg18_keygen_client",
+    "common_lib"
+]
