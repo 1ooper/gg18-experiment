@@ -4,7 +4,6 @@ use std::sync::RwLock;
 
 use rocket::serde::json::Json;
 use rocket::{post, routes, State};
-use uuid::Uuid;
 
 use common_lib::{Entry, Index, Key, Params, PartySignup};
 
@@ -35,66 +34,90 @@ fn set(db_mtx: &State<RwLock<HashMap<Key, String>>>, request: Json<Entry>) -> Js
     Json(Ok(()))
 }
 
-#[post("/signupkeygen", format = "json")]
-fn signup_keygen(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
+#[post("/signupkeygen", format = "json", data= "<uuid>")]
+fn signup_keygen(db_mtx: &State<RwLock<HashMap<Key, String>>>, uuid: Json<String>) -> Json<Result<PartySignup, ()>> {
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
     let parties = params.parties.parse::<u16>().unwrap();
 
-    let key = "signup-keygen".to_string();
+    let key = uuid.into_inner();
 
     let party_signup = {
         let hm = db_mtx.read().unwrap();
-        let value = hm.get(&key).unwrap();
-        let client_signup: PartySignup = serde_json::from_str(value).unwrap();
-        if client_signup.number < parties {
-            PartySignup {
-                number: client_signup.number + 1,
-                uuid: client_signup.uuid,
+        match hm.get(&key) {
+            Some(value) => {
+                let client_signup: PartySignup = serde_json::from_str(&value).unwrap();
+                if client_signup.number < parties {
+                    Ok(
+                        PartySignup{
+                            number: client_signup.number + 1,
+                            uuid: client_signup.uuid,
+                        }
+                    )
+                } else {
+                    Err(())
+                }
             }
-        } else {
-            PartySignup {
-                number: 1,
-                uuid: Uuid::new_v4().to_string(),
+            None => {
+                let uuid = key.clone();
+                Ok(
+                    PartySignup{
+                        number: 1,
+                        uuid,
+                    }
+                )
             }
         }
     };
-
-    let mut hm = db_mtx.write().unwrap();
-    hm.insert(key, serde_json::to_string(&party_signup).unwrap());
-    Json(Ok(party_signup))
+    if party_signup.is_ok() {
+        let mut hm = db_mtx.write().unwrap();
+        hm.insert(key, serde_json::to_string(&party_signup.clone().unwrap()).unwrap());
+    }
+    Json(party_signup)
 }
 
-#[post("/signupsign", format = "json")]
-fn signup_sign(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
+#[post("/signupsign", format = "json", data= "<uuid>")]
+fn signup_sign(db_mtx: &State<RwLock<HashMap<Key, String>>>, uuid: Json<String>) -> Json<Result<PartySignup, ()>> {
     //read parameters:
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
     let threshold = params.threshold.parse::<u16>().unwrap();
-    let key = "signup-sign".to_string();
+    let key = uuid.into_inner();
 
     let party_signup = {
         let hm = db_mtx.read().unwrap();
-        let value = hm.get(&key).unwrap();
-        let client_signup: PartySignup = serde_json::from_str(value).unwrap();
-        if client_signup.number < threshold + 1 {
-            PartySignup {
-                number: client_signup.number + 1,
-                uuid: client_signup.uuid,
+        match hm.get(&key) {
+            Some(value) => {
+                let client_signup: PartySignup = serde_json::from_str(&value).unwrap();
+                if client_signup.number < threshold + 1 {
+                    Ok(
+                        PartySignup{
+                            number: client_signup.number + 1,
+                            uuid: client_signup.uuid,
+                        }
+                    )
+                } else {
+                    Err(())
+                }
             }
-        } else {
-            PartySignup {
-                number: 1,
-                uuid: Uuid::new_v4().to_string(),
+            None => {
+                let uuid = key.clone();
+                Ok(
+                    PartySignup{
+                        number: 1,
+                        uuid,
+                    }
+                )
             }
         }
     };
-
-    let mut hm = db_mtx.write().unwrap();
-    hm.insert(key, serde_json::to_string(&party_signup).unwrap());
-    Json(Ok(party_signup))
+    if party_signup.is_ok() {
+        let mut hm = db_mtx.write().unwrap();
+        hm.insert(key, serde_json::to_string(&party_signup.clone().unwrap()).unwrap());
+    }
+    Json(party_signup)
 }
 
 #[tokio::main]
@@ -105,34 +128,8 @@ async fn main() {
     let db_mtx = RwLock::new(db);
     //rocket::custom(my_config).mount("/", routes![get, set]).manage(db_mtx).launch();
 
-    /////////////////////////////////////////////////////////////////
-    //////////////////////////init signups://////////////////////////
-    /////////////////////////////////////////////////////////////////
+   
 
-    let keygen_key = "signup-keygen".to_string();
-    let sign_key = "signup-sign".to_string();
-
-    let uuid_keygen = Uuid::new_v4().to_string();
-    let uuid_sign = Uuid::new_v4().to_string();
-
-    let party1 = 0;
-    let party_signup_keygen = PartySignup {
-        number: party1,
-        uuid: uuid_keygen,
-    };
-    let party_signup_sign = PartySignup {
-        number: party1,
-        uuid: uuid_sign,
-    };
-    {
-        let mut hm = db_mtx.write().unwrap();
-        hm.insert(
-            keygen_key,
-            serde_json::to_string(&party_signup_keygen).unwrap(),
-        );
-        hm.insert(sign_key, serde_json::to_string(&party_signup_sign).unwrap());
-    }
-    /////////////////////////////////////////////////////////////////
     rocket::build()
         .mount("/", routes![get, set, signup_keygen, signup_sign])
         .manage(db_mtx)

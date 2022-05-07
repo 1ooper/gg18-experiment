@@ -1,5 +1,5 @@
 [package]
-name = "gg18_keygen_client"
+name = "gg18_sign_buffer"
 version = "0.1.0"
 edition = "2021"
 
@@ -15,6 +15,10 @@ multi-party-ecdsa = {git = "https://github.com/ZenGo-X/multi-party-ecdsa", rev =
 reqwest = { version = "0.9", default-features = false }
 sha2 = "0.9"
 serde_json = "1.0"
+serde = "1.0"
+hex = "0.4"
+rocket = { version = "0.5.0-rc.1", default-features = false, features = ["json"] }
+tokio = { version = "1", default-features = false, features = ["macros"] }
 
 [dependencies.paillier]
 version = "0.4.2"

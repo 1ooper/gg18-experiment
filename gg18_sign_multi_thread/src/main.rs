@@ -24,16 +24,37 @@ use common_lib::{
     broadcast, check_sig, poll_for_broadcasts, poll_for_p2p, postb, sendp2p, Params, PartySignup,
 };
 
-#[allow(clippy::cognitive_complexity)]
 fn main() {
-    if env::args().nth(4).is_some() {
+    if env::args().nth(3).is_some() {
         panic!("too many arguments")
     }
-    if env::args().nth(3).is_none() {
+    if env::args().nth(2).is_none() {
         panic!("too few arguments")
     }
-    let message_str = env::args().nth(3).unwrap_or_else(|| "".to_string());
-    let message = match hex::decode(message_str.clone()) {
+    let sign_number = env::args().nth(2).unwrap().parse::<usize>().unwrap();
+    use std::thread;
+    
+    for i in 0..sign_number {
+        println!("No.{} thread started", i);
+        thread::spawn(move || {
+            let message_str = "0xf86b80850ba43b7400825208947917bc33eea648
+            809c285607579c9919fb864f8f8703baf82d03a0008025a006794065153079086171
+            4b2e8fd8b080361d1ada048189000c07a66848afde46a069b041db7c29dbcc6becf420
+            17ca7ac086b12bd53ec8ee494596f790fb6a0a69".to_string();
+            //example of tx
+            let keystore = "keys1.store".to_string();
+            let uuid = format!("sign_{}", i);
+            distributed_sign(&uuid, &message_str, &keystore);
+        });
+    }
+    thread::sleep(time::Duration::from_secs(60));
+
+}
+
+#[allow(clippy::cognitive_complexity)]
+fn distributed_sign(uuid: &str, message_str: &str, keystore_path: &str) {
+    
+    let message = match hex::decode(message_str){
         Ok(x) => x,
         Err(_e) => message_str.as_bytes().to_vec(),
     };
@@ -42,7 +63,7 @@ fn main() {
     // delay:
     let delay = time::Duration::from_millis(25);
     // read key file
-    let data = fs::read_to_string(env::args().nth(2).unwrap())
+    let data = fs::read_to_string(keystore_path)
         .expect("Unable to load keys, did you run keygen first? ");
     let (party_keys, shared_keys, party_id, vss_scheme_vec, paillier_key_vector, y_sum): (
         Keys,
@@ -60,7 +81,7 @@ fn main() {
     let THRESHOLD = params.threshold.parse::<u16>().unwrap();
 
     //signup:
-    let (party_num_int, uuid) = match signup(&client).unwrap() {
+    let (party_num_int, uuid) = match signup(&client, uuid).unwrap() {
         PartySignup { number, uuid } => (number, uuid),
     };
     println!("number: {:?}, uuid: {:?}", party_num_int, uuid);
@@ -522,10 +543,8 @@ fn format_vec_from_reads<'a, T: serde::Deserialize<'a> + Clone>(
     }
 }
 
-pub fn signup(client: &Client) -> Result<PartySignup, ()> {
-    let key = "signup-sign".to_string();
+pub fn signup(client: &Client, uuid: &str) -> Result<PartySignup, ()> {
 
-    let res_body = postb(client, "signupsign", key).unwrap();
+    let res_body = postb(&client, "signupsign", uuid).unwrap();
     serde_json::from_str(&res_body).unwrap()
 }
-

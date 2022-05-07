@@ -16,20 +16,64 @@ use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
 use paillier::EncryptionKey;
 use reqwest::Client;
 use sha2::Sha256;
-use std::{env, fs, time};
+use std::{env, fs, time,};
+use std::thread;
 
 use common_lib::{
     aes_decrypt, aes_encrypt, broadcast, poll_for_broadcasts, poll_for_p2p, postb, sendp2p, Params,
-    PartySignup, AEAD, AES_KEY_BYTES_LEN,
+    PartySignup, AEAD, AES_KEY_BYTES_LEN, Index, Entry
 };
 
+struct RxKeyGen(flume::Receiver<PartySignup>);
+
 fn main() {
-    if env::args().nth(3).is_some() {
-        panic!("too many arguments")
+
+   let keygen_num = env::args().nth(2).unwrap().parse::<usize>().unwrap();
+   let client = Client::new();
+   let (sender, receiver) = flume::bounded(1);
+   std::thread::spawn(move || {
+       keygen_worker(RxKeyGen(receiver));
+   });
+   for i in 0..keygen_num {
+       let uuid_i = format!("keygen_{}", i);
+       let party_signup = signup(&client, &uuid_i).unwrap();
+       if party_signup.number < 3 {
+           sender.send(party_signup).unwrap();
+       }else {
+           distributed_keygen(party_signup)
+       }
+   }
+   thread::sleep(std::time::Duration::from_secs(60));
+}
+
+fn keygen_worker(receiver: RxKeyGen){
+    println!("keygen worker started");
+    let client = Client::new();
+    let mut keygen_vec = Vec::new();
+    loop {
+        let ready_party_signup = loop {
+            thread::sleep(std::time::Duration::from_millis(25));
+            let rst = receiver.0.try_recv();
+            if rst.is_ok(){
+                keygen_vec.push(rst.unwrap());
+            }
+            let mut j = keygen_vec.len();
+            for i in 0..keygen_vec.len(){
+                let keygen_num = get_keygen_num(&client,&keygen_vec[i].uuid).unwrap();
+                println!("uuid: {} keygen num: {}",keygen_vec[i].uuid, keygen_num);
+                if  keygen_num == 3{
+                    j = i;
+                }
+            }
+            if j != keygen_vec.len(){
+                break keygen_vec.remove(j);
+            }
+        };
+        distributed_keygen(ready_party_signup);
     }
-    if env::args().nth(2).is_none() {
-        panic!("too few arguments")
-    }
+}
+
+fn distributed_keygen(party_signup: PartySignup) {
     //read parameters:
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
@@ -47,9 +91,7 @@ fn main() {
     };
 
     //signup:
-    let (party_num_int, uuid) = match signup(&client).unwrap() {
-        PartySignup { number, uuid } => (number, uuid),
-    };
+    let (party_num_int, uuid) = (party_signup.number, party_signup.uuid);
     println!("number: {:?}, uuid: {:?}", party_num_int, uuid);
 
     let party_keys = Keys::create(party_num_int);
@@ -259,12 +301,21 @@ fn main() {
         y_sum,
     ))
     .unwrap();
-    fs::write(env::args().nth(2).unwrap(), keygen_json).expect("Unable to save !");
+    fs::write("keystore.json",keygen_json).expect("Unable to save !");
 }
 
-pub fn signup(client: &Client) -> Result<PartySignup, ()> {
-    let key = "signup-keygen".to_string();
 
-    let res_body = postb(client, "signupkeygen", key).unwrap();
+pub fn signup(client: &Client, uuid: &str) -> Result<PartySignup, ()> {
+
+    let res_body = postb(&client, "signupkeygen", uuid).unwrap();
     serde_json::from_str(&res_body).unwrap()
+}
+
+pub fn get_keygen_num(client: &Client, keygen_uuid: &str) -> Result<u16,()> {
+    let key =  keygen_uuid.to_string();
+    let index = Index { key };
+    let res_body = postb(client, "get", index).unwrap();
+    let answer: Result<Entry, ()> = serde_json::from_str(&res_body).unwrap();
+    let party_signup: PartySignup = serde_json::from_str(&answer.unwrap().value).unwrap();
+    Ok(party_signup.number)
 }

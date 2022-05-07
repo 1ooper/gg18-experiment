@@ -1,7 +1,9 @@
 [workspace]
 members = [
     "gg18_sm_manager",
-    "gg18_sign_client",
-    "gg18_keygen_client",
+    "gg18_sign_multi_thread",
+    "gg18_sign_buffer",
+    "gg18_keygen_multi_thread",
+    "gg18_keygen_queue",
     "common_lib"
 ]
